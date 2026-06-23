@@ -1,5 +1,2 @@
 gradio==4.31.5
 openai==1.30.0
-pandas==2.1.4
-torch==2.0.0
-torchvision==0.15.0
