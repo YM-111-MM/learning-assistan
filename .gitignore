@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.vscode/
+*.db
+note_vector_db/
+.streamlit/secrets.toml

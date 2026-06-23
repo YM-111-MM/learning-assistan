@@ -1,0 +1,9 @@
+{
+  "spark_appid": "357ee194",
+  "spark_apisecret": "MTM0OGFkMWM1MDE1YjY1ZTgwOWIxOTIj",
+  "spark_apikey": "f1985f8bc865bf78e64c009275a4216b",
+  "spark_url": "wss://spark-api.xf-yun.com/v1.1/chat",
+  "sqlite_path": "./learning.db",
+  "zhipu_api_key": "ae45cd78f1bd4f4eb8e858ff34732eaf.B0PmIindaK7GSifh",
+  "zhipu_base_url": "https://open.bigmodel.cn/api/paas/v4/"
+}
