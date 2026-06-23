@@ -61,7 +61,7 @@ def create_interface():
             btn_list = gr.Button("📋 查看任务", variant="warning")
         
         # 聊天区域
-        chatbot = gr.Chatbot(height=400, show_copy_button=True)
+        chatbot = gr.Chatbot(height=400)
         
         # 输入区域
         with gr.Row():
