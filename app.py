@@ -1,7 +1,8 @@
 # app.py - 使用轻量版 agent_lite
 import gradio as gr
 from agent_lite import main_agent, TaskAgent, PlanAgent
-
+import os
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 # ========== 辅助函数 ==========
 def show_tasks():
     ta = TaskAgent()
