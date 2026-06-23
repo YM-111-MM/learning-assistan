@@ -1,16 +1,54 @@
-# agent_lite.py - 轻量版，不依赖 chromadb 和 sentence_transformers
+# agent_lite.py - 完整修复版
 import json
 import sqlite3
 import re
+import os
 from openai import OpenAI
 
-# 加载智谱API配置
+# ========== 自动创建数据库 ==========
+def init_database():
+    """如果数据库不存在，自动创建"""
+    if not os.path.exists("learning.db"):
+        conn = sqlite3.connect("learning.db")
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS todos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                course TEXT,
+                task TEXT,
+                deadline TEXT,
+                status INTEGER DEFAULT 0
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                course TEXT,
+                title TEXT,
+                content TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+        print("✅ 数据库创建成功")
+
+# 初始化数据库
+init_database()
+
+# ========== 加载配置 ==========
 def load_config():
-    with open("config.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open("config.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        # 如果 config.json 不存在，尝试从环境变量读取
+        return {
+            "zhipu_api_key": os.environ.get("ZHIPU_API_KEY", ""),
+            "zhipu_base_url": os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
+        }
 
 cfg = load_config()
-client = OpenAI(api_key=cfg["zhipu_api_key"], base_url=cfg["zhipu_base_url"])
+client = OpenAI(api_key=cfg.get("zhipu_api_key", ""), base_url=cfg.get("zhipu_base_url", ""))
 
 # ========== 任务管理Agent ==========
 class TaskAgent:
@@ -47,11 +85,22 @@ class TaskAgent:
         self.conn.commit()
         return f"🗑️ 已删除：【{course}】{task}（截止：{deadline}）"
 
-# ========== 笔记问答Agent（直接用大模型，不用向量检索） ==========
+    def delete_by_course(self, course):
+        """按课程名删除所有任务"""
+        self.cur.execute("SELECT id, course, task, deadline FROM todos WHERE course LIKE ? AND status=0", (f'%{course}%',))
+        rows = self.cur.fetchall()
+        if not rows:
+            return f"❌ 未找到课程 '{course}' 的未完成任务"
+        count = len(rows)
+        self.cur.execute("DELETE FROM todos WHERE course LIKE ? AND status=0", (f'%{course}%',))
+        self.conn.commit()
+        task_list = "\n".join([f"  • 【{r[1]}】{r[2]}（截止：{r[3]}）" for r in rows])
+        return f"🗑️ 已删除 {count} 条任务：\n{task_list}"
+
+# ========== 笔记问答Agent ==========
 class NoteAgent:
     def ask(self, question):
         try:
-            # 直接调用大模型回答，不检索笔记
             resp = client.chat.completions.create(
                 model="glm-5.2",
                 messages=[{"role": "user", "content": question}],
@@ -81,7 +130,6 @@ class PlanAgent:
 
 # ========== 意图解析 ==========
 def parse_intent(user_input):
-    # 本地关键词兜底
     if "查看任务" in user_input or "查看所有任务" in user_input:
         return {"intent":"list_task","course":"","task":"","deadline":"","keyword":""}
     
