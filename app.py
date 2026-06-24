@@ -1,8 +1,8 @@
-# app.py
+# app.py - Streamlit 版本
 import streamlit as st
 import os
 
-# 从 Streamlit Secrets 设置环境变量
+# ========== 从 Streamlit Secrets 设置环境变量 ==========
 if hasattr(st, 'secrets'):
     if "ZHIPU_API_KEY" in st.secrets:
         os.environ["ZHIPU_API_KEY"] = st.secrets["ZHIPU_API_KEY"]
@@ -11,8 +11,7 @@ if hasattr(st, 'secrets'):
     if "ZHIPU_MODEL" in st.secrets:
         os.environ["ZHIPU_MODEL"] = st.secrets["ZHIPU_MODEL"]
     print("✅ 已从 Secrets 设置环境变量")
-# app.py - Streamlit 版本（不依赖 gradio）
-import streamlit as st
+
 from agent_lite import main_agent, TaskAgent, PlanAgent
 
 st.set_page_config(page_title="📚 个人学习助手", page_icon="📚")
