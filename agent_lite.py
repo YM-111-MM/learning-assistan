@@ -127,7 +127,11 @@ class PlanAgent:
         if not task_list:
             return "🎉 当前无未完成待办，无需生成学习计划"
         task_str = ""
-        for c, t, d in task_list:
+        for row in task_list:
+            # row 是 (id, course, task, deadline)
+            c = row[1]  # course
+            t = row[2]  # task
+            d = row[3]  # deadline
             task_str += f"课程：{c} 任务：{t} 截止：{d}\n"
         prompt = f"根据以下待办任务生成合理的今日学习计划：\n{task_str}"
         
@@ -136,7 +140,7 @@ class PlanAgent:
         
         try:
             resp = client.chat.completions.create(
-                model=model,  # 使用 model 变量
+                model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
