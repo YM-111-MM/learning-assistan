@@ -32,22 +32,49 @@ if not os.path.exists("learning.db"):
 
 # ========== 加载配置 ==========
 def load_config():
+    # 优先从 Streamlit Secrets 读取
+    try:
+        import streamlit as st
+        # 检查是否有 secrets
+        if hasattr(st, 'secrets'):
+            zhipu_api_key = st.secrets.get("ZHIPU_API_KEY", "")
+            if zhipu_api_key:
+                print("✅ 从 Streamlit Secrets 读取配置")
+                return {
+                    "zhipu_api_key": zhipu_api_key,
+                    "zhipu_base_url": st.secrets.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/"),
+                    "zhipu_model": st.secrets.get("ZHIPU_MODEL", "glm-4-flash"),
+                    "sqlite_path": "./learning.db"
+                }
+    except Exception as e:
+        print(f"⚠️ 读取 Secrets 失败：{e}")
+    
+    # 如果 Secrets 没有，从 config.json 读取
     try:
         with open("config.json", "r", encoding="utf-8") as f:
+            print("✅ 从 config.json 读取配置")
             return json.load(f)
     except FileNotFoundError:
         print("⚠️ 找不到 config.json")
         return {}
+    except json.JSONDecodeError as e:
+        print(f"⚠️ config.json 格式错误：{e}")
+        return {}
 
 cfg = load_config()
 
-# ========== 初始化 OpenAI 客户端（只使用智谱） ==========
+# ========== 初始化 OpenAI 客户端 ==========
 api_key = cfg.get("zhipu_api_key", "").strip()
 base_url = cfg.get("zhipu_base_url", "https://open.bigmodel.cn/api/paas/v4/").strip()
-model = cfg.get("zhipu_model", "glm-4-flash")  # 从 config.json 读取模型名
+model = cfg.get("zhipu_model", "glm-4-flash")
+
+# 调试信息
+print(f"🔑 API Key 长度: {len(api_key)}")
+print(f"📡 Base URL: {base_url}")
+print(f"🤖 Model: {model}")
 
 if not api_key:
-    print("⚠️ 警告：未配置 zhipu_api_key，请检查 config.json 或 Streamlit Secrets")
+    print("⚠️ 警告：未配置 zhipu_api_key")
     client = None
 else:
     try:
