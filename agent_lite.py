@@ -36,28 +36,25 @@ def load_config():
         with open("config.json", "r", encoding="utf-8") as f:
             return json.load(f)
     except FileNotFoundError:
-        # 如果 config.json 不存在，使用环境变量（Streamlit Cloud 用）
-        return {
-            "zhipu_api_key": os.environ.get("ZHIPU_API_KEY", ""),
-            "zhipu_base_url": os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
-        }
+        print("⚠️ 找不到 config.json")
+        return {}
 
 cfg = load_config()
 
-# ========== 初始化 OpenAI 客户端（添加错误处理） ==========
+# ========== 初始化 OpenAI 客户端（只使用智谱） ==========
 api_key = cfg.get("zhipu_api_key", "").strip()
-base_url = cfg.get("zhipu_base_url", "https://open.bigmodel.cn/api/paas/v4").strip()
+base_url = cfg.get("zhipu_base_url", "https://open.bigmodel.cn/api/paas/v4/").strip()
+model = cfg.get("zhipu_model", "glm-4-flash")  # 从 config.json 读取模型名
 
 if not api_key:
     print("⚠️ 警告：未配置 zhipu_api_key，请检查 config.json 或 Streamlit Secrets")
-    # 创建一个假的客户端，避免程序崩溃
     client = None
 else:
     try:
         client = OpenAI(api_key=api_key, base_url=base_url)
-        print("✅ OpenAI 客户端初始化成功")
+        print(f"✅ 智谱客户端初始化成功，使用模型：{model}")
     except Exception as e:
-        print(f"❌ OpenAI 客户端初始化失败：{e}")
+        print(f"❌ 智谱客户端初始化失败：{e}")
         client = None
 
 # ========== 任务管理Agent ==========
@@ -114,7 +111,7 @@ class NoteAgent:
             return "❌ 未配置 API 密钥，请检查 config.json 或 Streamlit Secrets"
         try:
             resp = client.chat.completions.create(
-                model="glm-5.2",
+                model=model,  # 使用 model 变量
                 messages=[{"role": "user", "content": question}],
                 temperature=0.3
             )
@@ -139,7 +136,7 @@ class PlanAgent:
         
         try:
             resp = client.chat.completions.create(
-                model="glm-5.2",
+                model=model,  # 使用 model 变量
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3
             )
@@ -153,6 +150,43 @@ def parse_intent(user_input):
     if "查看任务" in user_input or "查看所有任务" in user_input:
         return {"intent":"list_task","course":"","task":"","deadline":"","keyword":""}
     
+    # 生成计划
+    if any(w in user_input for w in ["计划", "安排", "今日"]):
+        return {"intent":"make_plan","course":"","task":"","deadline":"","keyword":""}
+    
+    # 添加任务
+    if any(w in user_input for w in ["添加", "新增"]) and any(w in user_input for w in ["任务", "作业"]):
+        courses = ['人工智能', 'Python', '数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理']
+        course = "Python"
+        for c in courses:
+            if c in user_input:
+                course = c
+                break
+        task = user_input
+        for c in courses:
+            task = task.replace(c, '')
+        for w in ['添加', '新增', '任务', '作业', '课程', '截止']:
+            task = task.replace(w, '')
+        task = task.replace('：', '').replace(':', '').strip()
+        if not task:
+            task = "完成任务"
+        deadline = "今天"
+        if '今天' in user_input:
+            deadline = '今天'
+        elif '明天' in user_input:
+            deadline = '明天'
+        elif '后天' in user_input:
+            deadline = '后天'
+        return {"intent":"add_todo","course":course,"task":task,"deadline":deadline}
+    
+    # 完成任务
+    if '完成' in user_input and any(w in user_input for w in ['任务', '作业']):
+        keyword = user_input.replace('完成', '').replace('任务', '').replace('作业', '').strip()
+        if not keyword:
+            keyword = "作业"
+        return {"intent":"complete_todo","course":"","task":"","deadline":"","keyword":keyword}
+    
+    # 删除任务
     if "删除" in user_input and ("任务" in user_input or "作业" in user_input):
         courses = ['人工智能', 'Python', '数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理']
         course = ""
@@ -167,7 +201,16 @@ def parse_intent(user_input):
             if keyword:
                 return {"intent": "delete_todo", "course": "", "task": "", "deadline": "", "keyword": keyword}
     
-    # 如果 client 为 None，直接返回未知，避免调用大模型
+    # 查询笔记
+    if any(w in user_input for w in ['是什么', '什么是', '怎么用']):
+        keyword = user_input
+        for w in ['是什么', '什么是', '怎么用']:
+            keyword = keyword.replace(w, '')
+        keyword = keyword.strip()
+        if keyword:
+            return {"intent":"query_note","course":"","task":"","deadline":"","keyword":keyword}
+    
+    # 如果 client 为 None，直接返回未知
     if client is None:
         return {"intent": "unknown"}
 
@@ -193,7 +236,7 @@ def parse_intent(user_input):
 
     try:
         resp = client.chat.completions.create(
-            model="glm-5.2",
+            model=model,  # 使用 model 变量
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             response_format={"type": "json_object"}
@@ -202,7 +245,7 @@ def parse_intent(user_input):
         return json.loads(content)
     except Exception as e:
         print(f"⚠️ 解析失败：{e}")
-        return {"intent": "", "course": "", "task": "", "deadline": "", "keyword": ""}
+        return {"intent": "unknown"}
 
 # ========== 主路由 ==========
 def main_agent(user_input):
