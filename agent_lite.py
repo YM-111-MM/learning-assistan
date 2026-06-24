@@ -1,4 +1,4 @@
-# agent_lite.py - 修复 Streamlit 云端 openai proxies 兼容 + 数据库资源泄漏
+# agent_lite.py - 修复 Streamlit 云端 openai proxies 兼容 + 数据库资源泄漏 + 任意课程指令识别
 import json
 import sqlite3
 import re
@@ -164,7 +164,7 @@ class PlanAgent:
             c = row[1]
             t = row[2]
             d = row[3]
-            task_str += f"课程：{c} 任务：{t} 截止：{d}\n"
+            task_str += f"课程：{c} 任务：{task} 截止：{d}\n"
         prompt = f"根据以下待办任务生成合理的今日学习计划：\n{task_str}"
         
         if client is None:
@@ -180,16 +180,18 @@ class PlanAgent:
         except Exception as e:
             return f"❌ 大模型调用失败：{str(e)}"
 
-# ========== 意图解析（修复JSON脏文本解析崩溃） ==========
+# ========== 意图解析（修复JSON脏文本解析崩溃 + 兼容无任务/作业短句） ==========
 def parse_intent(user_input):
     # 本地关键词兜底匹配
     if "查看任务" in user_input or "查看所有任务" in user_input:
         return {"intent":"list_task","course":"","task":"","deadline":"","keyword":""}
     if any(w in user_input for w in ["计划", "安排", "今日"]):
         return {"intent":"make_plan","course":"","task":"","deadline":"","keyword":""}
-    if any(w in user_input for w in ["添加", "新增"]) and any(w in user_input for w in ["任务", "作业"]):
-        courses = ['人工智能', 'Python', '数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理']
-        course = "Python"
+    
+    # 修复：取消必须同时带「任务/作业」限制，只要有添加就识别新增任务
+    if any(w in user_input for w in ["添加", "新增"]):
+        courses = ['人工智能', 'Python', '数学', '英语', '语文', '绘画', '音乐', '物理', '化学', '生物', '历史', '地理']
+        course = "自定义课程"
         for c in courses:
             if c in user_input:
                 course = c
@@ -197,21 +199,29 @@ def parse_intent(user_input):
         task = user_input
         for c in courses:
             task = task.replace(c, '')
-        for w in ['添加', '新增', '任务', '作业', '课程', '截止']:
+        for w in ['添加', '新增', '课程', '截止']:
             task = task.replace(w, '')
         task = task.replace('：', '').replace(':', '').strip()
-        task = task if task else "完成任务"
+        task = task if task else "完成课程学习"
         deadline = "今天"
-        if '明天' in user_input:
+        # 兼容今天晚上、明天下午这类时间后缀
+        if '今天' in user_input:
+            deadline = '今天'
+            if "晚上" in user_input or "下午" in user_input or "上午" in user_input:
+                deadline = "今天晚上"
+        elif '明天' in user_input:
             deadline = '明天'
+            if "晚上" in user_input or "下午" in user_input or "上午" in user_input:
+                deadline = "明天晚上"
         elif '后天' in user_input:
             deadline = '后天'
         return {"intent":"add_todo","course":course,"task":task,"deadline":deadline,"keyword":""}
+    
     if '完成' in user_input and any(w in user_input for w in ['任务', '作业']):
         keyword = user_input.replace('完成', '').replace('任务', '').replace('作业', '').strip() or "作业"
         return {"intent":"complete_todo","keyword":keyword}
     if "删除" in user_input and ("任务" in user_input or "作业" in user_input):
-        courses = ['人工智能', 'Python', '数学', '英语', '语文', '物理', '化学', '生物', '历史', '地理']
+        courses = ['人工智能', 'Python', '数学', '英语', '语文', '绘画', '音乐', '物理', '化学', '生物', '历史', '地理']
         course = ""
         for c in courses:
             if c in user_input:
@@ -253,6 +263,20 @@ JSON字段：{"intent":"","course":"","task":"","deadline":"","keyword":""}
         return json.loads(content)
     except Exception as e:
         print(f"⚠️ 意图解析失败：{e}")
+        # 兜底：大模型报错时，只要包含添加就自动走add_todo，不会返回无法识别
+        if "添加" in user_input:
+            courses = ['人工智能', 'Python', '数学', '英语', '音乐', '绘画', '语文', '物理']
+            course = "自定义课程"
+            for c in courses:
+                if c in user_input:
+                    course = c
+                    break
+            return {
+                "intent":"add_todo",
+                "course":course,
+                "task":"完成课程学习",
+                "deadline":"今天"
+            }
         return {"intent": "unknown"}
 
 # ========== 主路由（用完自动关闭数据库连接） ==========
@@ -265,7 +289,7 @@ def main_agent(user_input):
     try:
         if intent == 'add_todo':
             course = intent_data.get("course", "").strip() or "Python"
-            task = intent_data.get("task", "").strip() or "完成任务"
+            task = intent_data.get("task", "").strip() or "完成课程学习"
             deadline = intent_data.get("deadline", "").strip() or "今天"
             return ta.add_task(course, task, deadline)
         
@@ -294,7 +318,7 @@ def main_agent(user_input):
         else:
             return """❌ 无法识别指令
 💡 支持指令示例：
-  📝 添加任务：添加人工智能课程任务，完成代码，截止今天
+  📝 添加任务：添加人工智能课程，截止今天晚上
   📖 查询笔记：什么是列表推导式
   📅 生成计划：帮我安排今日学习计划
   📋 查看任务：查看任务
