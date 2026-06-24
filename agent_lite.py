@@ -1,4 +1,4 @@
-# agent_lite.py - 修复 Streamlit 云端 openai proxies 兼容 + 数据库资源泄漏 + 任意课程指令识别
+# agent_lite.py - 修复 Streamlit 云端 openai proxies 兼容 + 数据库资源泄漏 + 任意课程增删指令识别
 import json
 import sqlite3
 import re
@@ -151,7 +151,7 @@ class NoteAgent:
         except Exception as e:
             return f"❌ 大模型调用失败：{str(e)}"
 
-# ========== 学习计划Agent ==========
+# ========== 学习计划Agent（已修复变量名错误） ==========
 class PlanAgent:
     def make_plan(self):
         ta = TaskAgent()
@@ -164,7 +164,8 @@ class PlanAgent:
             c = row[1]
             t = row[2]
             d = row[3]
-            task_str += f"课程：{c} 任务：{task} 截止：{d}\n"
+            # 修复：把 {task} 改成 {t}
+            task_str += f"课程：{c} 任务：{t} 截止：{d}\n"
         prompt = f"根据以下待办任务生成合理的今日学习计划：\n{task_str}"
         
         if client is None:
@@ -180,7 +181,7 @@ class PlanAgent:
         except Exception as e:
             return f"❌ 大模型调用失败：{str(e)}"
 
-# ========== 意图解析（修复JSON脏文本解析崩溃 + 兼容无任务/作业短句） ==========
+# ========== 意图解析（修复JSON脏文本解析崩溃 + 兼容无任务/作业短句 + 优化删除逻辑） ==========
 def parse_intent(user_input):
     # 本地关键词兜底匹配
     if "查看任务" in user_input or "查看所有任务" in user_input:
@@ -220,19 +221,20 @@ def parse_intent(user_input):
     if '完成' in user_input and any(w in user_input for w in ['任务', '作业']):
         keyword = user_input.replace('完成', '').replace('任务', '').replace('作业', '').strip() or "作业"
         return {"intent":"complete_todo","keyword":keyword}
-    if "删除" in user_input and ("任务" in user_input or "作业" in user_input):
-        courses = ['人工智能', 'Python', '数学', '英语', '语文', '绘画', '音乐', '物理', '化学', '生物', '历史', '地理']
-        course = ""
+
+    # 全新优化删除逻辑：仅检测“删除”，无需带任务/作业
+    if "删除" in user_input:
+        # 提取关键词
+        keyword = user_input.replace("删除","").replace("任务","").replace("作业","").strip()
+        if not keyword:
+            return {"intent":"unknown"}
+        # 先匹配课程
+        courses = ['人工智能', 'Python', '数学', '绘画', '音乐']
         for c in courses:
-            if c in user_input:
-                course = c
-                break
-        if course:
-            return {"intent": "delete_course", "course": course, "keyword": ""}
-        else:
-            keyword = user_input.replace('删除', '').replace('任务', '').replace('作业', '').strip()
-            if keyword:
-                return {"intent": "delete_todo", "keyword": keyword}
+            if c in keyword:
+                return {"intent":"delete_course","course":c,"keyword":""}
+        return {"intent":"delete_todo","keyword":keyword}
+
     if any(w in user_input for w in ['是什么', '什么是', '怎么用']):
         keyword = user_input
         for w in ['是什么', '什么是', '怎么用']:
@@ -322,7 +324,7 @@ def main_agent(user_input):
   📖 查询笔记：什么是列表推导式
   📅 生成计划：帮我安排今日学习计划
   📋 查看任务：查看任务
-  🗑️ 删除任务：删除Python代码任务
+  🗑️ 删除任务：删除人工智能 / 删除代码任务
 """
     finally:
         # 无论是否报错，强制关闭数据库连接，避免云端资源耗尽
