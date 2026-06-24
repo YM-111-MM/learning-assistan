@@ -32,24 +32,20 @@ if not os.path.exists("learning.db"):
 
 # ========== 加载配置 ==========
 def load_config():
-    # 优先从 Streamlit Secrets 读取
-    try:
-        import streamlit as st
-        # 检查是否有 secrets
-        if hasattr(st, 'secrets'):
-            zhipu_api_key = st.secrets.get("ZHIPU_API_KEY", "")
-            if zhipu_api_key:
-                print("✅ 从 Streamlit Secrets 读取配置")
-                return {
-                    "zhipu_api_key": zhipu_api_key,
-                    "zhipu_base_url": st.secrets.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/"),
-                    "zhipu_model": st.secrets.get("ZHIPU_MODEL", "glm-4-flash"),
-                    "sqlite_path": "./learning.db"
-                }
-    except Exception as e:
-        print(f"⚠️ 读取 Secrets 失败：{e}")
+    import os
     
-    # 如果 Secrets 没有，从 config.json 读取
+    # 1. 从环境变量读取（最可靠）
+    zhipu_api_key = os.environ.get("ZHIPU_API_KEY", "")
+    if zhipu_api_key:
+        print("✅ 从环境变量读取配置")
+        return {
+            "zhipu_api_key": zhipu_api_key,
+            "zhipu_base_url": os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4/"),
+            "zhipu_model": os.environ.get("ZHIPU_MODEL", "glm-4-flash"),
+            "sqlite_path": "./learning.db"
+        }
+    
+    # 2. 从 config.json 读取
     try:
         with open("config.json", "r", encoding="utf-8") as f:
             print("✅ 从 config.json 读取配置")
@@ -62,6 +58,7 @@ def load_config():
         return {}
 
 cfg = load_config()
+print(f"🔑 API Key 长度: {len(cfg.get('zhipu_api_key', ''))}")
 
 # ========== 初始化 OpenAI 客户端 ==========
 api_key = cfg.get("zhipu_api_key", "").strip()
