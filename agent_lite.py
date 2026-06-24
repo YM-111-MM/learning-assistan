@@ -1,4 +1,4 @@
-# agent_lite.py - 完整修复版
+# agent_lite.py - 修复 OpenAI 客户端初始化
 import json
 import sqlite3
 import re
@@ -6,49 +6,59 @@ import os
 from openai import OpenAI
 
 # ========== 自动创建数据库 ==========
-def init_database():
-    """如果数据库不存在，自动创建"""
-    if not os.path.exists("learning.db"):
-        conn = sqlite3.connect("learning.db")
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS todos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                course TEXT,
-                task TEXT,
-                deadline TEXT,
-                status INTEGER DEFAULT 0
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                course TEXT,
-                title TEXT,
-                content TEXT
-            )
-        """)
-        conn.commit()
-        conn.close()
-        print("✅ 数据库创建成功")
-
-# 初始化数据库
-init_database()
+if not os.path.exists("learning.db"):
+    conn = sqlite3.connect("learning.db")
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS todos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course TEXT,
+            task TEXT,
+            deadline TEXT,
+            status INTEGER DEFAULT 0
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course TEXT,
+            title TEXT,
+            content TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+    print("✅ 数据库创建成功")
 
 # ========== 加载配置 ==========
 def load_config():
     try:
         with open("config.json", "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
-        # 如果 config.json 不存在，尝试从环境变量读取
+    except FileNotFoundError:
+        # 如果 config.json 不存在，使用环境变量（Streamlit Cloud 用）
         return {
             "zhipu_api_key": os.environ.get("ZHIPU_API_KEY", ""),
             "zhipu_base_url": os.environ.get("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4")
         }
 
 cfg = load_config()
-client = OpenAI(api_key=cfg.get("zhipu_api_key", ""), base_url=cfg.get("zhipu_base_url", ""))
+
+# ========== 初始化 OpenAI 客户端（添加错误处理） ==========
+api_key = cfg.get("zhipu_api_key", "").strip()
+base_url = cfg.get("zhipu_base_url", "https://open.bigmodel.cn/api/paas/v4").strip()
+
+if not api_key:
+    print("⚠️ 警告：未配置 zhipu_api_key，请检查 config.json 或 Streamlit Secrets")
+    # 创建一个假的客户端，避免程序崩溃
+    client = None
+else:
+    try:
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        print("✅ OpenAI 客户端初始化成功")
+    except Exception as e:
+        print(f"❌ OpenAI 客户端初始化失败：{e}")
+        client = None
 
 # ========== 任务管理Agent ==========
 class TaskAgent:
@@ -97,9 +107,11 @@ class TaskAgent:
         task_list = "\n".join([f"  • 【{r[1]}】{r[2]}（截止：{r[3]}）" for r in rows])
         return f"🗑️ 已删除 {count} 条任务：\n{task_list}"
 
-# ========== 笔记问答Agent ==========
+# ========== 笔记问答Agent（直接用大模型，不用向量检索） ==========
 class NoteAgent:
     def ask(self, question):
+        if client is None:
+            return "❌ 未配置 API 密钥，请检查 config.json 或 Streamlit Secrets"
         try:
             resp = client.chat.completions.create(
                 model="glm-5.2",
@@ -121,15 +133,23 @@ class PlanAgent:
         for c, t, d in task_list:
             task_str += f"课程：{c} 任务：{t} 截止：{d}\n"
         prompt = f"根据以下待办任务生成合理的今日学习计划：\n{task_str}"
-        resp = client.chat.completions.create(
-            model="glm-5.2",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
-        )
-        return resp.choices[0].message.content
+        
+        if client is None:
+            return "❌ 未配置 API 密钥，请检查 config.json 或 Streamlit Secrets"
+        
+        try:
+            resp = client.chat.completions.create(
+                model="glm-5.2",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            return f"❌ 大模型调用失败：{e}"
 
 # ========== 意图解析 ==========
 def parse_intent(user_input):
+    # 本地关键词兜底
     if "查看任务" in user_input or "查看所有任务" in user_input:
         return {"intent":"list_task","course":"","task":"","deadline":"","keyword":""}
     
@@ -146,6 +166,10 @@ def parse_intent(user_input):
             keyword = user_input.replace('删除', '').replace('任务', '').replace('作业', '').strip()
             if keyword:
                 return {"intent": "delete_todo", "course": "", "task": "", "deadline": "", "keyword": keyword}
+    
+    # 如果 client 为 None，直接返回未知，避免调用大模型
+    if client is None:
+        return {"intent": "unknown"}
 
     prompt = f"""分析用户输入，提取意图和关键信息，只输出JSON。
 
