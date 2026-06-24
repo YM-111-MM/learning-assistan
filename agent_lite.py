@@ -68,7 +68,6 @@ api_key = cfg.get("zhipu_api_key", "").strip()
 base_url = cfg.get("zhipu_base_url", "https://open.bigmodel.cn/api/paas/v4/").strip()
 model = cfg.get("zhipu_model", "glm-4-flash")
 
-# 调试信息
 print(f"🔑 API Key 长度: {len(api_key)}")
 print(f"📡 Base URL: {base_url}")
 print(f"🤖 Model: {model}")
@@ -138,7 +137,7 @@ class NoteAgent:
             return "❌ 未配置 API 密钥，请检查 config.json 或 Streamlit Secrets"
         try:
             resp = client.chat.completions.create(
-                model=model,  # 使用 model 变量
+                model=model,
                 messages=[{"role": "user", "content": question}],
                 temperature=0.3
             )
@@ -156,9 +155,9 @@ class PlanAgent:
         task_str = ""
         for row in task_list:
             # row 是 (id, course, task, deadline)
-            c = row[1]  # course
-            t = row[2]  # task
-            d = row[3]  # deadline
+            c = row[1]
+            t = row[2]
+            d = row[3]
             task_str += f"课程：{c} 任务：{t} 截止：{d}\n"
         prompt = f"根据以下待办任务生成合理的今日学习计划：\n{task_str}"
         
@@ -267,7 +266,7 @@ def parse_intent(user_input):
 
     try:
         resp = client.chat.completions.create(
-            model=model,  # 使用 model 变量
+            model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             response_format={"type": "json_object"}
