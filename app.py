@@ -1,4 +1,4 @@
-# app.py - Streamlit 版本
+# app.py - 纯 Streamlit 版本
 import streamlit as st
 import os
 
